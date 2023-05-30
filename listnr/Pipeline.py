@@ -37,11 +37,13 @@ class BasePipeline:
             t = await response.json()
             return { 'error': False, 'content': t["choices"][0]["message"]["content"] }
         except Exception as e:
+            print(e)
             return { 'error': e }
 
 
 class YoutubePipeline(BasePipeline):
     all_comments_data = {}
+    analysis_df = {}
 
     def __init__(self, videoID, description, all_comments_data=None):
         self.videoID = videoID
@@ -238,11 +240,9 @@ Format the results as a table, where the first column has the orginal comment's 
 
     async def get_top_down_topics(self, session, parsed_comments):
         prompt = self.top_down_topics_prompt + "\n" + parsed_comments
-        print('test')
         data = await self.async_gpt_completion_call(session, prompt)
-        print(data)
         if data['error']:
-            raise requests.RequestException
+            raise Exception(data['error'])
         
         top_down_topics = data['content']
 
@@ -265,7 +265,6 @@ Format the results as a table, where the first column has the orginal comment's 
     async def get_top_down_topics_tagging(
         self, session, parsed_comments, top_down_topics
     ):
-        print('here')
         prompt = (
             self.top_down_topic_tagging_prompt
             + "\n"
@@ -279,9 +278,8 @@ Format the results as a table, where the first column has the orginal comment's 
         )
         data = await self.async_gpt_completion_call(session, prompt)
         if data['error']:
-            raise requests.RequestException
+            raise Exception(data['error'])
         
-        print('got it')
         completion = data['content']
         return completion
 
@@ -312,7 +310,7 @@ Format the results as a table, where the first column has the orginal comment's 
         parsed_comments_list = []
 
         once_equal_break = 0
-        while end_idx < len(self.all_comments):
+        while end_idx <= len(self.all_comments):
             if once_equal_break:
                 break
 
@@ -606,6 +604,7 @@ Format the results as a table, where the first column has the orginal comment's 
         # td_stats.to_csv('Top_Down_Stats_'+self.videoID+'.csv')
         # bu_stats.to_csv('Bottom_Up_Stats_'+self.videoID+'.csv')
         # combined_stats.to_csv('Combined_Stats_'+self.videoID+'.csv')
+        print(2345)
 
         sentiment_dict = []
         for k, v in top_down_dict.items():
