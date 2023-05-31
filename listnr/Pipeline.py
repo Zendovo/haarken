@@ -5,11 +5,17 @@ import html
 import pandas as pd
 import asyncio
 import aiohttp
-
 import nltk
-nltk.download('stopwords')
+import time
+from openpyxl import Workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
+from django.core.files.temp import NamedTemporaryFile
+
+
+nltk.download("stopwords")
 from nltk.corpus import stopwords
-stopwords_en = stopwords.words('english')
+
+stopwords_en = stopwords.words("english")
 
 
 class BasePipeline:
@@ -21,9 +27,7 @@ class BasePipeline:
     async def async_gpt_completion_call(self, session, prompt) -> str:
         params = {
             "model": "gpt-3.5-turbo",
-            "messages": [
-                {"role": "user", "content": prompt}
-            ],
+            "messages": [{"role": "user", "content": prompt}],
         }
         response = await session.request(
             method="post",
@@ -35,10 +39,10 @@ class BasePipeline:
         )
         try:
             t = await response.json()
-            return { 'error': False, 'content': t["choices"][0]["message"]["content"] }
+            return {"error": False, "content": t["choices"][0]["message"]["content"]}
         except Exception as e:
             print(e)
-            return { 'error': e }
+            return {"error": e}
 
 
 class YoutubePipeline(BasePipeline):
@@ -79,7 +83,7 @@ Format the results as a table, where the first column has the orginal comment's 
             self.store_comments(all_comments_data)
             self.print_comments_data()
             return
-        
+
         self.store_comments(all_comments_data)
 
     def store_comments(self, all_comments_data):
@@ -167,7 +171,6 @@ Format the results as a table, where the first column has the orginal comment's 
                 "https://www.googleapis.com/youtube/v3/commentThreads", params=params
             )
 
-
             data = json.loads(x.text)
             for text in data["items"]:
                 comment_text = html.unescape(
@@ -241,10 +244,10 @@ Format the results as a table, where the first column has the orginal comment's 
     async def get_top_down_topics(self, session, parsed_comments):
         prompt = self.top_down_topics_prompt + "\n" + parsed_comments
         data = await self.async_gpt_completion_call(session, prompt)
-        if data['error']:
-            raise Exception(data['error'])
-        
-        top_down_topics = data['content']
+        if data["error"]:
+            raise Exception(data["error"])
+
+        top_down_topics = data["content"]
 
         topics_without_header_without_metadata = []
         for topic_text in top_down_topics.split("\n"):
@@ -277,20 +280,21 @@ Format the results as a table, where the first column has the orginal comment's 
             + parsed_comments
         )
         data = await self.async_gpt_completion_call(session, prompt)
-        if data['error']:
-            raise Exception(data['error'])
-        
-        completion = data['content']
+        if data["error"]:
+            raise Exception(data["error"])
+
+        completion = data["content"]
         return completion
 
-    def adjust_token_limit(self, start_idx, end_idx, max_tokens):
+    def adjust_token_limit(self, start_idx, end_idx, max_tokens, dec_amount):
         parsed_comments = self.parse_comments(self.all_comments[start_idx:end_idx])
 
         num_tokens = self.count_tokens(parsed_comments)
         while num_tokens > max_tokens:
             print("Decreasing end idx from: ", str(end_idx))
-            end_idx = end_idx - 10
+            end_idx = end_idx - dec_amount
             print("New end idx: ", str(end_idx))
+            time.sleep(2)
 
             parsed_comments = self.parse_comments(self.all_comments[start_idx:end_idx])
             num_tokens = self.count_tokens(parsed_comments)
@@ -321,7 +325,7 @@ Format the results as a table, where the first column has the orginal comment's 
             print("Top Down topics...")
 
             _temp = self.adjust_token_limit(
-                start_idx, end_idx, self.max_top_down_length
+                start_idx, end_idx, self.max_top_down_length, 10
             )
             parsed_comments = _temp["parsed_comments"]
             end_idx = _temp["end_idx"]
@@ -382,7 +386,7 @@ Format the results as a table, where the first column has the orginal comment's 
                 str(mini_end_idx),
             )
             _temp = self.adjust_token_limit(
-                start_idx, mini_end_idx, self.max_bottom_up_length
+                start_idx, mini_end_idx, self.max_bottom_up_length, 2
             )
             parsed_comments = _temp["parsed_comments"]
             mini_end_idx = _temp["end_idx"]
@@ -416,6 +420,12 @@ Format the results as a table, where the first column has the orginal comment's 
         neutral = 0
         comment_sentiment_dict = []
 
+        workbook = Workbook()
+        del workbook['Sheet']
+        ws_stats = workbook.create_sheet("All Stats")
+        ws_topics_match = workbook.create_sheet("Topics Match")
+        ws_comment_sentiment = workbook.create_sheet("Top Down Mapping Full Match")
+
         for tag_m in self.analysis_df["Top Down Topics Tagged"]:
             for tag in tag_m.split("\n"):
                 if "youtube comment" in tag.lower() or (
@@ -433,7 +443,7 @@ Format the results as a table, where the first column has the orginal comment's 
                     pass
 
                 try:
-                    category = tag.split("|")[4].strip().lower()
+                    category = tag.split("|")[2].strip().lower()
                 except:
                     category = "NA"
 
@@ -450,161 +460,74 @@ Format the results as a table, where the first column has the orginal comment's 
                 split_tags_td.append(tag)
 
         comment_sentiment_df = pd.DataFrame(data=comment_sentiment_dict)
-        comment_sentiment_df.to_csv("Comments_Sentiment_" + str(self.videoID) + ".csv")
+        for r in dataframe_to_rows(comment_sentiment_df, index=True, header=True):
+            ws_comment_sentiment.append(r)
 
-        print("Comments' sentiments:")
-        print(
-            "Positive: ",
-            str(float(positive) / self.all_comments_data["number_of_comments"]),
+        ws_stats["A1"] = "Comments Processed"
+        ws_stats["B1"] = self.all_comments_data["number_of_comments"]
+        ws_stats["A2"] = "#Comments with replies"
+        ws_stats["B2"] = self.all_comments_data["comments_with_replies"]
+        ws_stats["A3"] = "%Comments with replies"
+        ws_stats["B3"] = (
+            self.all_comments_data["comments_with_replies"]
+            / self.all_comments_data["number_of_comments"]
+            * 100
         )
-        print(
-            "Negative: ",
-            str(float(negative) / self.all_comments_data["number_of_comments"]),
-        )
-        print(
-            "Neutral: ",
-            str(float(neutral) / self.all_comments_data["number_of_comments"]),
-        )
+        ws_stats["A4"] = "Total replies"
+        ws_stats["B4"] = self.all_comments_data["total_replies"]
+        ws_stats["A5"] = "Average replies per comment"
+        ws_stats["B5"] = self.all_comments_data["avg_replies"]
+        ws_stats["A6"] = "Average likes per comment"
+        ws_stats["B6"] = self.all_comments_data["avg_likes"]
+        ws_stats["A7"] = "Average comment length"
+        ws_stats["B7"] = self.all_comments_data["avg_comment_length"]
 
-        print("Positive: ", str(float(positive)))
-        print("Negative: ", str(float(negative)))
-        print("Neutral: ", str(float(neutral)))
+        ws_stats["A9"] = "% Positive"
+        ws_stats["B9"] = str(
+            float(positive) / self.all_comments_data["number_of_comments"] * 100
+        )
+        ws_stats["A10"] = "% Neutral"
+        ws_stats["B10"] = str(
+            float(neutral) / self.all_comments_data["number_of_comments"] * 100
+        )
+        ws_stats["A11"] = "% Negative"
+        ws_stats["B11"] = str(
+            float(negative) / self.all_comments_data["number_of_comments"] * 100
+        )
 
         top_down_dict = dict(
             {k: [] for k in self.analysis_df["Top Down Topics"] if k != ""}
         )
         for comment in split_tags_td:
             flag = 0
-            try:
-                comment_topics = " ".join(
-                    [
-                        word
-                        for word in comment.split("|")[2].strip().split()
-                        if word not in stopwords.words("english")
-                    ]
-                )
-            except:
-                continue
             for topic in top_down_dict.keys():
+                _topic = topic
+                if _topic != None:
+                    _topic = topic.lower()
                 # topic_without_stopwords = ' '.join([word for word in topic.split() if word not in stopwords.words('english')])
                 # if topic_without_stopwords.lower() in comment_topics.lower():
-                if topic.lower() in comment.lower():
+                if str(_topic) in comment.lower():
                     # if topic.lower()[:13] in comment.lower():
                     top_down_dict[topic].append(comment)
                     flag = 1
             if not flag:
                 self.not_present["top_down"].append(comment)
 
-        # print ("Parsing bottom up tagging")
-        # split_tags_bu = []
-
-        # for tag_m in self.analysis_df["Bottom Up Topics Tagged"]:
-        #   for tag in tag_m.split("\n"):
-        #     if 'comment' in tag.lower() and 'themes' in tag.lower() and 'sentiments' in tag.lower():
-        #       continue
-        #     if '---' in tag:
-        #       continue
-        #     split_tags_bu.append(tag)
-        # bottom_up_topics = []
-
-        # for bu_tag in split_tags_bu:
-        #   try:
-        #     topics = bu_tag.split('|')[2].strip()
-        #   except:
-        #     pass
-        #   bottom_up_topics.extend([topic.lower().strip() for topic in topics.split(',')])
-
-        # bottom_up_topics = set(bottom_up_topics)
-        # self.analysis_df["Bottom Up Topics"] = bottom_up_topics
-        # bottom_up_dict = dict({k:[] for k in self.analysis_df["Bottom Up Topics"]})
-        # for comment in split_tags_bu:
-        #   flag = 0
-        #   for topic in bottom_up_dict.keys():
-        #     try:
-        #       if topic.lower() in comment.split('|')[2].lower():
-        #         bottom_up_dict[topic].append(comment)
-        #         flag = 1
-        #     except:
-        #       print ('Bad comment: ', comment)
-        #   if not flag:
-        #     self.not_present["bottom_up"].append(comment)
-
-        # self.bottom_up_dict = bottom_up_dict
         self.top_down_dict = top_down_dict
-
-        # combined_dict = {}
-
-        # for k, v in self.top_down_dict.items():
-        #   if k in combined_dict.keys():
-        #     combined_dict[k].extend(v)
-        #   else:
-        #     combined_dict[k] = v
-
-        # for k, v in self.bottom_up_dict.items():
-        #   if k in combined_dict.keys():
-        #     combined_dict[k].extend(v)
-        #   else:
-        #     combined_dict[k] = v
-
-        # self.combined_dict = combined_dict
-
         top_down_df = []
 
         for k in top_down_dict.keys():
             for v in top_down_dict[k]:
                 top_down_df.append({"Topic": k, "Comment": v})
 
-        # bottom_up_df = []
-
-        # for k in bottom_up_dict.keys():
-        #   if k == '':
-        #     continue
-        #   for v in bottom_up_dict[k]:
-        #     bottom_up_df.append({"Topic": k, "Comment": v})
-
-        # combined_df = []
-
-        # for k in combined_dict.keys():
-        #   if k == '':
-        #     continue
-        #   for v in combined_dict[k]:
-        #     combined_df.append({"Topic": k, "Comment": v})
-
         td_df = pd.DataFrame(data=top_down_df)
-        # bu_df = pd.DataFrame(data=bottom_up_df)
-        # combined_df = pd.DataFrame(data=combined_df)
+        # td_df.to_csv("Top_Down_Raw_" + self.videoID + ".csv")
 
-        td_df.to_csv("Top_Down_Raw_" + self.videoID + ".csv")
-        # bu_df.to_csv('Bottom_Up_Raw_'+self.videoID+'.csv')
-        # combined_df.to_csv('Combined_Raw_'+self.videoID+'.csv')
+        # top_down_stats = []
+        # for k in top_down_dict.keys():
+        #     top_down_stats.append({"Topic": k, "Comments": len(top_down_dict[k])})
 
-        top_down_stats = []
-
-        for k in top_down_dict.keys():
-            top_down_stats.append({"Topic": k, "Comments": len(top_down_dict[k])})
-
-        # bottom_up_stats = []
-
-        # for k in bottom_up_dict.keys():
-        #   if k == '':
-        #     continue
-        #   bottom_up_stats.append({"Topic": k, "Comments": len(bottom_up_dict[k])})
-
-        # combined_stats = []
-
-        # for k in combined_dict.keys():
-        #   if k == '':
-        #     continue
-        #   combined_stats.append({"Topic": k, "Comments": len(combined_dict[k])})
-
-        td_stats = pd.DataFrame(data=top_down_stats)
-        # bu_stats = pd.DataFrame(data=bottom_up_stats)
-        # combined_stats = pd.DataFrame(data=combined_stats)
-
-        # td_stats.to_csv('Top_Down_Stats_'+self.videoID+'.csv')
-        # bu_stats.to_csv('Bottom_Up_Stats_'+self.videoID+'.csv')
-        # combined_stats.to_csv('Combined_Stats_'+self.videoID+'.csv')
-        print(2345)
+        # td_stats = pd.DataFrame(data=top_down_stats)
 
         sentiment_dict = []
         for k, v in top_down_dict.items():
@@ -643,17 +566,14 @@ Format the results as a table, where the first column has the orginal comment's 
                 if mini_neu == mini_neg:
                     sentiment = "Neutral, Negative"
                 print("None largest")
-                print("Positive: ", str(mini_pos))
-                print("Negative: ", str(mini_neg))
-                print("Neutral: ", str(mini_neu))
-                print("Comment: ", comment.split("|"))
-                print("Sentiment:", comment.split("|")[3].strip())
-                print("------------------------------")
             sentiment_dict.append(
                 {"Topic": k, "Sentiment": sentiment, "Comments": len(v)}
             )
 
         topics_sentiment_df = pd.DataFrame(data=sentiment_dict)
-        topics_sentiment_df.to_csv(
-            "Topics_Sentiment_Count_" + str(self.videoID) + ".csv"
-        )
+        for r in dataframe_to_rows(topics_sentiment_df, index=True, header=True):
+            ws_topics_match.append(r)
+
+        virtual_workbook = NamedTemporaryFile(delete=True)
+        workbook.save(virtual_workbook.name)
+        return virtual_workbook

@@ -11,6 +11,6 @@ class Task(models.Model):
     fetch_comments_id = models.CharField("Celery Fetch Comments Task ID", max_length=255)
     analyse_comments_id = models.CharField("Celery Fetch Comments Task ID", max_length=255, blank=True)
     parse_analysis_id = models.CharField("Celery Fetch Comments Task ID", max_length=255, blank=True)
-    final_results = models.FileField("Final Results Sheet", blank=True)
+    final_results = models.FileField("Final Results Sheet", upload_to="results", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

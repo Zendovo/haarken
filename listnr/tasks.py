@@ -5,8 +5,8 @@ from celery.utils.log import get_task_logger
 import json
 from listnr.models import Task
 from .Pipeline import YoutubePipeline
-from asgiref.sync import async_to_sync
 import asyncio
+from django.core.files.base import File
 
 logger = get_task_logger(__name__)
 
@@ -77,10 +77,9 @@ def parse_analysis(task_id):
     try:
         pipeline = YoutubePipeline(task.video_id, task.description, json.loads(task.all_comments_data))
         pipeline.analysis_df = json.loads(task.analysed_comments)
-        print(1)
-        pipeline.parse_analyses()
+        final = pipeline.parse_analyses()
+        task.final_results = File(final, f'{task.video_id}-test.xlsx')
 
-        print(2)
         task.status = "PARSED_ANALYSIS"
         task.save()
     except Exception as e:

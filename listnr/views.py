@@ -21,6 +21,7 @@ class TaskView(APIView):
         
         celery_task = fetch_comments.delay(task.id)
         task.fetch_comments_id = celery_task.id
+        task.save()
 
         return Response({ 'message': 'queued task' }, status=status.HTTP_200_OK)
     
