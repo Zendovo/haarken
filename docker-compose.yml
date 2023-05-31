@@ -37,6 +37,10 @@ services:
     restart: always
     build:
       context: .
+    volumes:
+      - .:/home/app/web
+      - staticfiles:/home/app/web/staticfiles
+      - mediafiles:/home/app/web/media
     command: celery -A core worker --loglevel=INFO
     depends_on:
       - broker
