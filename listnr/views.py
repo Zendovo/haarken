@@ -10,12 +10,14 @@ from .serializers import TaskSerializer
 class TaskView(APIView):
 
     def post(self, request):
-        data = request.body.decode('utf-8')
-        data = json.loads(data)
+        data = request.data
 
-        email = data['email']
-        video_id = data['video_id']
-        description = data['description']
+        try:
+            email = data['email']
+            video_id = data['video_id']
+            description = data['description']
+        except KeyError:
+            return Response({ "error": "invalid body parameters" }, status=status.HTTP_400_BAD_REQUEST)
 
         task = Task.objects.create(email=email, video_id=video_id, status='CREATED', description=description)
         
@@ -26,12 +28,20 @@ class TaskView(APIView):
         return Response({ 'message': 'queued task' }, status=status.HTTP_200_OK)
     
     def get(self, request):
-        data = request.body.decode('utf-8')
-        data = json.loads(data)
+        data = request.data
 
-        email = data['email']
+        try:
+            email = data['email']
+        except KeyError:
+            return Response({ "error": "invalid body parameters" }, status=status.HTTP_400_BAD_REQUEST)
         
         tasks = Task.objects.filter(email=email)
+
+        if "status" in data:
+            status = data['status']
+            tasks = tasks.filter(status=status)
+            
+        
         serialized = TaskSerializer(tasks, many=True)
 
         return Response({ 'tasks': serialized.data })
@@ -40,8 +50,7 @@ class TaskView(APIView):
 class TaskDetailsView(APIView):
 
     def get(self, request, id):
-        data = request.body.decode('utf-8')
-        data = json.loads(data)
+        data = request.data
 
         email = data['email']
         
