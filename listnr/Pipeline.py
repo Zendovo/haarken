@@ -10,6 +10,8 @@ import time
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from django.core.files.temp import NamedTemporaryFile
+from langchain.llms import OpenAI
+import os
 
 
 nltk.download("stopwords")
@@ -24,22 +26,15 @@ class BasePipeline:
         num_tokens = len(encoding.encode(text))
         return num_tokens
 
-    async def async_gpt_completion_call(self, session, prompt) -> str:
-        params = {
-            "model": "gpt-3.5-turbo",
-            "messages": [{"role": "user", "content": prompt}],
-        }
-        response = await session.request(
-            method="post",
-            url=self.OpenAI_API_URL,
-            json=params,
-            headers={
-                "Authorization": f"Bearer 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"
-            },
+    async def async_gpt_completion_call(self, session, prompt):
+        llm = OpenAI(
+            model_name="gpt-3.5-turbo",
+            openai_api_key=os.environ.get("OPENAI_API_KEY"),
         )
+
         try:
-            t = await response.json()
-            return {"error": False, "content": t["choices"][0]["message"]["content"]}
+            resp = await llm.agenerate([prompt])
+            return resp.generations[0][0].text
         except Exception as e:
             print(e)
             return {"error": e}
@@ -96,7 +91,7 @@ Format the results as a table, where the first column has the orginal comment's 
     def get_comments(self):
         print("Fetching comments...")
         params = {
-            "key": "AIzaSyAmrWaHTfZLh1B5UYFUlColWwxzegbRHFU",
+            "key": os.environ.get("YOUTUBE_API_KEY"),
             "videoId": self.videoID,
             "part": "snippet",
             "order": "relevance",
@@ -153,7 +148,7 @@ Format the results as a table, where the first column has the orginal comment's 
                 }
 
         next_token = data["nextPageToken"]
-        next_token = False
+        # next_token = False
 
         ct = 1
         while next_token:
@@ -244,10 +239,10 @@ Format the results as a table, where the first column has the orginal comment's 
     async def get_top_down_topics(self, session, parsed_comments):
         prompt = self.top_down_topics_prompt + "\n" + parsed_comments
         data = await self.async_gpt_completion_call(session, prompt)
-        if data["error"]:
+        if "error" in data:
             raise Exception(data["error"])
 
-        top_down_topics = data["content"]
+        top_down_topics = data
 
         topics_without_header_without_metadata = []
         for topic_text in top_down_topics.split("\n"):
@@ -280,10 +275,10 @@ Format the results as a table, where the first column has the orginal comment's 
             + parsed_comments
         )
         data = await self.async_gpt_completion_call(session, prompt)
-        if data["error"]:
+        if "error" in data:
             raise Exception(data["error"])
 
-        completion = data["content"]
+        completion = data
         return completion
 
     def adjust_token_limit(self, start_idx, end_idx, max_tokens, dec_amount):
@@ -421,7 +416,7 @@ Format the results as a table, where the first column has the orginal comment's 
         comment_sentiment_dict = []
 
         workbook = Workbook()
-        del workbook['Sheet']
+        del workbook["Sheet"]
         ws_stats = workbook.create_sheet("All Stats")
         ws_topics_match = workbook.create_sheet("Topics Match")
         ws_comment_sentiment = workbook.create_sheet("Top Down Mapping Full Match")
