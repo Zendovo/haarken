@@ -3,7 +3,6 @@ from rest_framework.response import Response
 from rest_framework import status
 from listnr.models import Task
 from .tasks import fetch_comments
-import json
 from .serializers import TaskSerializer
 
 # Create your views here.

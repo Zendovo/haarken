@@ -12,6 +12,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from django.core.files.temp import NamedTemporaryFile
 from langchain.llms import OpenAI
 import os
+from time import sleep
 
 
 nltk.download("stopwords")
@@ -26,7 +27,8 @@ class BasePipeline:
         num_tokens = len(encoding.encode(text))
         return num_tokens
 
-    async def async_gpt_completion_call(self, session, prompt):
+    async def async_gpt_completion_call(self, session, prompt, retry_count=0):
+        sleep(10 * (2 ** retry_count) * min(retry_count, 1))
         llm = OpenAI(
             model_name="gpt-3.5-turbo",
             openai_api_key=os.environ.get("OPENAI_API_KEY"),
@@ -37,6 +39,8 @@ class BasePipeline:
             return resp.generations[0][0].text
         except Exception as e:
             print(e)
+            if retry_count < 5:
+                return await self.async_gpt_completion_call(session, prompt, retry_count+1)
             return {"error": e}
 
 
