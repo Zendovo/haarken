@@ -42,6 +42,8 @@ services:
       - staticfiles:/home/app/web/staticfiles
       - mediafiles:/home/app/web/media
     command: celery -A core worker --loglevel=INFO
+    env_file:
+      - project.env
     depends_on:
       - broker
 

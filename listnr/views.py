@@ -2,7 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from listnr.models import Task
-from .tasks import fetch_comments
+from .tasks import fetch_comments, analyse_comments, parse_analysis
 from .serializers import TaskSerializer
 
 # Create your views here.
@@ -60,3 +60,25 @@ class TaskDetailsView(APIView):
         serialized = TaskSerializer(task)
 
         return Response({ 'task': serialized.data })
+    
+    def post(self, request, id):
+        data = request.data
+
+        email = data['email']
+        
+        try:
+            task = Task.objects.get(email=email, id=id)
+        except Exception as e:
+            return Response({ 'error': 'could not get task' }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if task.status == "FAILED_FETCH_COMMENTS":
+            fetch_comments.delay(id)
+        elif task.status == "FETCHED_COMMENTS" or task.status == "FAILED_ANALYSE_COMMENTS":
+            analyse_comments.delay(id)
+        elif task.status == "ANALYSED_COMMENTS" or task.status == "FAILED_PARSE_ANALYSIS":
+            parse_analysis.delay(id)
+
+        task = Task.objects.get(email=email, id=id)
+        serialized = TaskSerializer(task)
+
+        return Response({ 'message': 'queued task', 'task': serialized.data })
