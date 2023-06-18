@@ -4,7 +4,8 @@ from celery import shared_task
 from celery.utils.log import get_task_logger
 import json
 from listnr.models import Task
-from .Pipeline import YoutubePipeline
+from .pipeline.Youtube import YoutubePipeline
+from .pipeline.Reddit import RedditPipeline
 import asyncio
 from django.core.files.base import File
 
